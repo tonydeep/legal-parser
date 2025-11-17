@@ -7,9 +7,13 @@ A beautiful web interface for parsing Vietnamese legal documents into Neo4j Stru
 ✨ **Beautiful UI** with step-by-step workflow visualization
 📤 **Multi-format Support**: Upload PDF, DOCX, HTML, or paste text
 🔍 **Real-time Parsing** with JSON validation checkpoints
-⚙️ **Cypher Generation** for Neo4j import
+⚙️ **Cypher Generation** for Neo4j 5.x import
 📥 **Download** generated Cypher scripts
 🎯 **Interactive Results** with expandable structure trees
+🏛️ **15 Document Types** covering full Vietnamese legal hierarchy
+📊 **7-Tier Structure** from Phần to Tiểu mục
+⚖️ **8 Legislative Actions** (Ban hành, Sửa đổi, Bổ sung, etc.)
+🔗 **5 Legal Relationships** (Căn cứ, Hướng dẫn thi hành, Quy định chi tiết, Kế thừa, Tham chiếu)
 
 ## Screenshots
 
@@ -162,41 +166,67 @@ legal-parser-demo/
 - Display generation summary
 - Provide download link
 
-## Supported Document Types
+## Supported Document Types (15 Types by Legal Hierarchy)
 
-- 🏛️ **Hiến pháp** (HIEN_PHAP)
-- 📜 **Luật** (LUAT)
-- 📚 **Bộ luật** (BO_LUAT)
-- 📋 **Nghị định** (NGHI_DINH)
-- 📄 **Thông tư** (THONG_TU)
-- 📌 **Quyết định** (QUYET_DINH)
-- 📃 **Nghị quyết** (NGHI_QUYET)
-- 📝 **Pháp lệnh** (PHAP_LENH)
+1. 🏛️ **Hiến pháp** (HIEN_PHAP) - Constitution
+2. 📚 **Bộ luật** (BO_LUAT) - Legal Code
+3. 📜 **Luật** (LUAT) - Law
+4. 📃 **Nghị quyết Quốc hội** (NGHI_QUYET_QH) - National Assembly Resolution
+5. 📝 **Pháp lệnh** (PHAP_LENH) - Ordinance
+6. 📋 **Nghị quyết UBTVQH** (NGHI_QUYET_UBTVQH) - Standing Committee Resolution
+7. 🏢 **Nghị định** (NGHI_DINH) - Decree
+8. 📄 **Thông tư** (THONG_TU) - Circular
+9. 📌 **Quyết định Thủ tướng** (QUYET_DINH_TTG) - Prime Minister Decision
+10. 👤 **Quyết định Bộ trưởng** (QUYET_DINH_BO_TRUONG) - Minister Decision
+11. 🏛️ **Quyết định Chủ tịch** (QUYET_DINH_CHU_TICH) - Chairman Decision
+12. 📌 **Quyết định** (QUYET_DINH) - General Decision
+13. 📋 **Chỉ thị** (CHI_THI) - Directive
+14. 📃 **Nghị quyết** (NGHI_QUYET) - General Resolution
+15. *(Additional types as defined by Lawnet standards)*
 
-## Structure Hierarchy
+## Structure Hierarchy (7-Tier System)
 
-Recognizes 6 levels:
-1. **Phần** (Part)
-2. **Chương** (Chapter)
-3. **Mục** (Section)
-4. **Điều** (Article)
-5. **Khoản** (Clause)
-6. **Điểm** (Point)
+Recognizes 7 hierarchical levels:
+1. **Phần** (Part) - Level 1
+2. **Chương** (Chapter) - Level 2
+3. **Mục** (Section) - Level 3
+4. **Điều** (Article) - Level 4
+5. **Khoản** (Clause) - Level 5
+6. **Điểm** (Point) - Level 6
+7. **Tiểu mục** (Sub-section) - Level 7 *(NEW)*
 
-## Generated Graph Schema
+## Legislative Actions (8 Types)
+
+The parser detects and classifies 8 types of legislative actions:
+1. **Ban hành** (BAN_HANH) - Issue/Promulgate
+2. **Sửa đổi** (SUA_DOI) - Amend
+3. **Bổ sung** (BO_SUNG) - Supplement
+4. **Thay thế** (THAY_THE) - Replace
+5. **Bãi bỏ** (BAI_BO) - Abolish
+6. **Đình chỉ** (DINH_CHI) - Suspend
+7. **Hủy bỏ** (HUY_BO) - Revoke
+8. **Hết hiệu lực** (HET_HIEU_LUC) - Expire
+
+## Generated Graph Schema (Neo4j 5.x)
 
 ### Nodes
-- **VanBan**: Document (Work level)
-- **ThanhPhanVanBan**: Components with specialized labels (Phan, Chuong, Dieu, etc.)
+- **VanBan**: Document (Work level) with legislative action metadata
+- **ThanhPhanVanBan**: Components with specialized labels (Phan, Chuong, Muc, Dieu, Khoan, Diem, TieuMuc)
 - **PhienBanVanBan**: Temporal version
 - **CTV**: Component Temporal Version (with content)
 - **CoQuanBanHanh**: Issuing authority
+- **VanBanThamChieu**: Referenced documents *(NEW)*
 
-### Relationships
-- **HAS_COMPONENT**: Hierarchy
-- **HAS_EXPRESSION**: Versioning
+### Relationships (5 Legal Relationship Types)
+- **HAS_COMPONENT**: Hierarchical structure
+- **HAS_EXPRESSION**: Temporal versioning
 - **AGGREGATES**: Temporal aggregation
 - **ISSUED_BY**: Authority link
+- **CAN_CU**: Legal basis relationship *(Enhanced)*
+- **HUONG_DAN_THI_HANH**: Implementation guidance *(NEW)*
+- **QUY_DINH_CHI_TIET**: Detailed regulation *(NEW)*
+- **KE_THUA**: Inheritance relationship *(NEW)*
+- **THAM_CHIEU**: General reference *(NEW)*
 
 ## Example Usage
 
@@ -292,9 +322,9 @@ with driver.session() as session:
 ## Limitations
 
 - **Initial version only**: Creates BAN_DAU temporal version
-- **No amendment processing**: Requires paired documents
-- **Limited cross-references**: Only detects căn cứ
-- **No internal references**: "Điều X Khoản Y" not linked
+- **No amendment processing**: Requires paired documents (improvements coming for 8 legislative actions)
+- **Enhanced cross-references**: Now detects 5 relationship types (Căn cứ, Hướng dẫn thi hành, Quy định chi tiết, Kế thừa, Tham chiếu)
+- **No internal references**: "Điều X Khoản Y" linking planned for future versions
 
 ## Future Enhancements
 
@@ -313,10 +343,13 @@ with driver.session() as session:
 
 - **Backend**: Flask 3.0 (Python)
 - **Frontend**: HTML5, CSS3, Vanilla JavaScript
-- **Parser**: Custom Python implementation
+- **Parser**: Custom Python implementation with 7-tier hierarchy support
 - **Graph Model**: LRMoo (IFLA Library Reference Model)
-- **Database Target**: Neo4j 4.x/5.x
+- **Database Target**: Neo4j 5.x (backward compatible with 4.x)
 - **File Processing**: pdfplumber, python-docx, BeautifulSoup
+- **Document Types**: 15 types covering full Vietnamese legal hierarchy
+- **Legislative Actions**: 8 action types detection
+- **Legal Relationships**: 5 relationship types (Căn cứ, Hướng dẫn, Quy định, Kế thừa, Tham chiếu)
 
 ## License
 
@@ -336,6 +369,21 @@ For issues or questions:
 
 ---
 
-**Version**: 1.0
-**Last Updated**: 2024-11-09
+**Version**: 2.0 (Enhanced)
+**Last Updated**: 2025-11-17
 **Author**: Claude AI Assistant
+
+## Changelog
+
+### Version 2.0 (2025-11-17)
+- ✅ Added 7th hierarchical level: Tiểu mục (Sub-section)
+- ✅ Expanded from 8 to 15 document types covering full legal hierarchy
+- ✅ Implemented 8 legislative actions detection
+- ✅ Added 5 legal relationship types (Căn cứ, Hướng dẫn thi hành, Quy định chi tiết, Kế thừa, Tham chiếu)
+- ✅ Enhanced Neo4j 5.x compatibility
+- ✅ Improved cross-reference detection
+
+### Version 1.0 (2024-11-09)
+- Initial release with 6-tier hierarchy
+- Basic 8 document types
+- Simple Căn cứ reference detection

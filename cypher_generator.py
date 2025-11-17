@@ -2,6 +2,7 @@
 """
 Neo4j Cypher Statement Generator for Vietnamese Legal Documents
 Converts parsed document structure into Neo4j Cypher statements.
+Compatible with Neo4j 5.x
 """
 
 import json
@@ -11,42 +12,45 @@ from document_parser import ParsedDocument, ComponentNode, DocumentMetadata, Cro
 
 
 class CypherGenerator:
-    """Generates Cypher statements for Neo4j import"""
-    
+    """Generates Cypher statements for Neo4j 5.x import"""
+
     def __init__(self, parsed_doc: ParsedDocument):
         self.parsed_doc = parsed_doc
         self.generated_urns: Set[str] = set()
         self.statements: List[str] = []
         
     def generate_all(self) -> str:
-        """Generate complete Cypher script"""
+        """Generate complete Cypher script for Neo4j 5.x"""
         self.statements = []
-        
+
         # Header
-        self.statements.append("// Vietnamese Legal Document Import")
+        self.statements.append("// Vietnamese Legal Document Import - Neo4j 5.x")
         self.statements.append(f"// Generated: {datetime.now().isoformat()}")
         self.statements.append("// Document: " + (self.parsed_doc.metadata.tieu_de or "Unknown"))
+        self.statements.append(f"// Document Type: {self.parsed_doc.metadata.loai_van_ban or 'UNKNOWN'}")
+        self.statements.append(f"// Legislative Action: {self.parsed_doc.metadata.hanh_dong_lap_phap or 'BAN_HANH'}")
+        self.statements.append("// Features: 7-tier hierarchy, 15 doc types, 8 legislative actions, 5 legal relationships")
         self.statements.append("")
-        
+
         # 1. Create VanBan (Work) node
         self._generate_van_ban_node()
-        
+
         # 2. Create CoQuanBanHanh if needed
         if self.parsed_doc.metadata.co_quan_ban_hanh:
             self._generate_authority_node()
-        
+
         # 3. Create ThanhPhanVanBan (Component) nodes
         self._generate_component_hierarchy()
-        
+
         # 4. Create PhienBanVanBan (Temporal Version) - initial version
         self._generate_initial_version()
-        
+
         # 5. Create CTVs (Component Temporal Versions)
         self._generate_ctvs()
-        
-        # 6. Create cross-reference relationships
+
+        # 6. Create cross-reference relationships (5 types)
         self._generate_cross_references()
-        
+
         return '\n'.join(self.statements)
     
     def _generate_van_ban_node(self):
@@ -79,10 +83,12 @@ class CypherGenerator:
             self.statements.append(f"  ngayBanHanh: date('{md.ngay_ban_hanh}'),")
         if md.ngay_hieu_luc:
             self.statements.append(f"  ngayHieuLuc: date('{md.ngay_hieu_luc}'),")
+        if md.hanh_dong_lap_phap:
+            self.statements.append(f"  hanhDongLapPhap: '{md.hanh_dong_lap_phap}',")
         self.statements.append("  trangThai: 'HIEU_LUC'")
         self.statements.append("};")
         self.statements.append("")
-        
+
         return urn
     
     def _generate_authority_node(self):
@@ -215,20 +221,40 @@ class CypherGenerator:
                 self._generate_ctvs_recursive(node.children, date)
     
     def _generate_cross_references(self):
-        """Generate cross-reference relationships"""
+        """Generate cross-reference relationships (5 types)"""
         if not self.parsed_doc.cross_references:
             return
-        
-        self.statements.append("// Create Cross-References")
+
+        self.statements.append("// Create Cross-References (5 Legal Relationship Types)")
         self.statements.append("")
-        
+
+        # Group by relationship type
+        ref_by_type = {}
         for ref in self.parsed_doc.cross_references:
-            if ref.loai_tham_chieu == "CAN_CU":
-                # Create CAN_CU relationship
-                self.statements.append("// Legal basis reference")
-                self.statements.append("MATCH (vb:VanBan {urn: $urn})")
-                self.statements.append(f"// Target: {ref.noi_dung}")
-                self.statements.append("// TODO: Create proper target node when document is available")
+            if ref.loai_tham_chieu not in ref_by_type:
+                ref_by_type[ref.loai_tham_chieu] = []
+            ref_by_type[ref.loai_tham_chieu].append(ref)
+
+        # Generate relationships by type
+        for rel_type, refs in ref_by_type.items():
+            self.statements.append(f"// {rel_type} relationships")
+            for idx, ref in enumerate(refs):
+                # Create reference node (placeholder until actual document is available)
+                target_node_var = f"ref_{rel_type.lower()}_{idx}"
+                self.statements.append(f"MERGE ({target_node_var}:VanBanThamChieu {{urn: '{ref.target_component}'}})")
+                self.statements.append(f"SET {target_node_var}.noiDung = {self._escape_string(ref.noi_dung)};")
+
+                # Create relationship from source
+                if ref.source_component == "DOCUMENT_ROOT":
+                    self.statements.append("MATCH (vb:VanBan {urn: $urn})")
+                    self.statements.append(f"MATCH ({target_node_var}:VanBanThamChieu {{urn: '{ref.target_component}'}})")
+                    self.statements.append(f"MERGE (vb)-[r:{rel_type}]->({target_node_var})")
+                    self.statements.append(f"SET r.noiDung = {self._escape_string(ref.noi_dung)};")
+                else:
+                    # Component-level reference
+                    self.statements.append(f"// Reference from component: {ref.source_component}")
+                    self.statements.append(f"// Target: {ref.target_component}")
+
                 self.statements.append("")
     
     def _generate_component_urn(self, node: ComponentNode) -> str:
@@ -238,7 +264,7 @@ class CypherGenerator:
         return f"{base_urn}!{comp_id}"
     
     def _get_component_label(self, loai: str) -> str:
-        """Get Neo4j label for component type"""
+        """Get Neo4j label for component type (7 levels)"""
         labels = {
             'PHAN': 'Phan',
             'CHUONG': 'Chuong',
@@ -246,6 +272,7 @@ class CypherGenerator:
             'DIEU': 'Dieu',
             'KHOAN': 'Khoan',
             'DIEM': 'Diem',
+            'TIEU_MUC': 'TieuMuc',  # 7th level
         }
         return labels.get(loai, 'ThanhPhanVanBan')
     
