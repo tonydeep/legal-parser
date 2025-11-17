@@ -26,4 +26,6 @@ Thumbs.db
 # Application specific
 uploads/
 outputs/
-*.cypher
+# Ignore generated cypher files but keep schema
+/import*.cypher
+/output*.cypher
