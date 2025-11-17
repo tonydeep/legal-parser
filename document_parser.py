@@ -14,16 +14,17 @@ from pathlib import Path
 
 @dataclass
 class DocumentMetadata:
-    """Metadata extracted from legal document"""
-    loai_van_ban: Optional[str] = None  # NGHI_DINH, LUAT, THONG_TU, etc.
+    """Metadata extracted from legal document (15 doc types, 8 legislative actions)"""
+    loai_van_ban: Optional[str] = None  # 15 types: HIEN_PHAP, LUAT, BO_LUAT, etc.
     so_hieu: Optional[str] = None
     tieu_de: Optional[str] = None
     ngay_ban_hanh: Optional[str] = None
     ngay_hieu_luc: Optional[str] = None
     co_quan_ban_hanh: Optional[str] = None
     nguoi_ky: Optional[str] = None
+    hanh_dong_lap_phap: Optional[str] = None  # BAN_HANH, SUA_DOI, BO_SUNG, THAY_THE, BAI_BO, DINH_CHI, HUY_BO, HET_HIEU_LUC
     can_cu: List[str] = None
-    
+
     def __post_init__(self):
         if self.can_cu is None:
             self.can_cu = []
@@ -31,15 +32,15 @@ class DocumentMetadata:
 
 @dataclass
 class ComponentNode:
-    """Represents a structural component (Phan, Chuong, Dieu, etc.)"""
-    loai: str  # PHAN, CHUONG, MUC, DIEU, KHOAN, DIEM
+    """Represents a structural component (7-tier: Phan, Chuong, Muc, Dieu, Khoan, Diem, Tieu_Muc)"""
+    loai: str  # PHAN, CHUONG, MUC, DIEU, KHOAN, DIEM, TIEU_MUC
     so_dinh_danh: str  # "1", "2", "a", "b"
     tieu_de: Optional[str] = None
     noi_dung: Optional[str] = None
     thu_tu: int = 0
     cap_bac: int = 1
     children: List['ComponentNode'] = None
-    
+
     def __post_init__(self):
         if self.children is None:
             self.children = []
@@ -47,10 +48,10 @@ class ComponentNode:
 
 @dataclass
 class CrossReference:
-    """Cross-reference to another component"""
+    """Cross-reference to another component (5 legal relationship types)"""
     source_component: str  # URN of source
     target_component: str  # URN of target
-    loai_tham_chieu: str  # CAN_CU, THAM_CHIEU, HUONG_DAN
+    loai_tham_chieu: str  # CAN_CU, HUONG_DAN_THI_HANH, QUY_DINH_CHI_TIET, KE_THUA, THAM_CHIEU
     noi_dung: str
 
 
@@ -65,20 +66,48 @@ class ParsedDocument:
 
 class VietnameseLegalParser:
     """Parser for Vietnamese legal documents"""
-    
-    # Patterns for document types
+
+    # Patterns for document types (15 types by legal hierarchy)
     DOC_TYPE_PATTERNS = {
-        r'^NGHỊ ĐỊNH': 'NGHI_DINH',
-        r'^LUẬT': 'LUAT',
-        r'^BỘ LUẬT': 'BO_LUAT',
-        r'^THÔNG TƯ': 'THONG_TU',
-        r'^QUYẾT ĐỊNH': 'QUYET_DINH',
-        r'^NGHỊ QUYẾT': 'NGHI_QUYET',
-        r'^PHÁP LỆNH': 'PHAP_LENH',
-        r'^HIẾN PHÁP': 'HIEN_PHAP',
+        r'^HIẾN PHÁP': 'HIEN_PHAP',  # Constitution (Highest)
+        r'^BỘ LUẬT': 'BO_LUAT',  # Legal Code
+        r'^LUẬT': 'LUAT',  # Law
+        r'^NGHỊ QUYẾT.*QUỐC HỘI': 'NGHI_QUYET_QH',  # National Assembly Resolution
+        r'^PHÁP LỆNH': 'PHAP_LENH',  # Ordinance
+        r'^NGHỊ QUYẾT.*ỦY BAN THƯỜNG VỤ QUỐC HỘI': 'NGHI_QUYET_UBTVQH',  # Standing Committee Resolution
+        r'^NGHỊ QUYẾT.*UBTVQH': 'NGHI_QUYET_UBTVQH',  # Standing Committee Resolution (short form)
+        r'^NGHỊ ĐỊNH': 'NGHI_DINH',  # Decree
+        r'^THÔNG TƯ': 'THONG_TU',  # Circular
+        r'^QUYẾT ĐỊNH.*THỦ TƯỚNG': 'QUYET_DINH_TTG',  # Prime Minister Decision
+        r'^QUYẾT ĐỊNH.*BỘ TRƯỞNG': 'QUYET_DINH_BO_TRUONG',  # Minister Decision
+        r'^QUYẾT ĐỊNH.*CHỦ TỊCH': 'QUYET_DINH_CHU_TICH',  # Chairman Decision
+        r'^QUYẾT ĐỊNH': 'QUYET_DINH',  # General Decision
+        r'^CHỈ THỊ': 'CHI_THI',  # Directive
+        r'^NGHỊ QUYẾT': 'NGHI_QUYET',  # General Resolution
+    }
+
+    # Patterns for 8 legislative actions
+    LEGISLATIVE_ACTION_PATTERNS = {
+        r'ban hành': 'BAN_HANH',  # Issue/Promulgate
+        r'sửa đổi': 'SUA_DOI',  # Amend
+        r'bổ sung': 'BO_SUNG',  # Supplement
+        r'thay thế': 'THAY_THE',  # Replace
+        r'bãi bỏ': 'BAI_BO',  # Abolish
+        r'đình chỉ': 'DINH_CHI',  # Suspend
+        r'hủy bỏ': 'HUY_BO',  # Revoke
+        r'hết hiệu lực': 'HET_HIEU_LUC',  # Expire
+    }
+
+    # Patterns for 5 legal relationship types
+    RELATIONSHIP_PATTERNS = {
+        r'Căn cứ': 'CAN_CU',  # Legal basis
+        r'[Hh]ướng dẫn thi hành': 'HUONG_DAN_THI_HANH',  # Implementation guidance
+        r'[Qq]uy định chi tiết': 'QUY_DINH_CHI_TIET',  # Detailed regulation
+        r'[Kk]ế thừa': 'KE_THUA',  # Inheritance
+        r'[Tt]ham chiếu': 'THAM_CHIEU',  # Reference
     }
     
-    # Patterns for structural components
+    # Patterns for structural components (7-tier hierarchy)
     COMPONENT_PATTERNS = {
         'PHAN': r'^Phần\s+(thứ\s+)?([IVX]+|một|hai|ba|bốn|năm|sáu|bảy|tám|chín|mười)',
         'CHUONG': r'^Chương\s+([IVX]+|\d+)',
@@ -86,6 +115,7 @@ class VietnameseLegalParser:
         'DIEU': r'^Điều\s+(\d+)\.',
         'KHOAN': r'^(\d+)\.',
         'DIEM': r'^([a-zđ])\)',
+        'TIEU_MUC': r'^([a-zđ])\.',  # Sub-section (7th level, after DIEM)
     }
     
     # Date patterns
@@ -126,23 +156,36 @@ class VietnameseLegalParser:
     def _extract_metadata(self, lines: List[str]) -> DocumentMetadata:
         """Extract document metadata from header"""
         metadata = DocumentMetadata()
-        
+
         # Detect document type from first line
         for pattern, doc_type in self.DOC_TYPE_PATTERNS.items():
             if re.match(pattern, lines[0].strip(), re.IGNORECASE):
                 metadata.loai_van_ban = doc_type
                 break
-        
+
         # Extract title (usually second line or after document type)
         title_candidates = []
         for i, line in enumerate(lines[:10]):
             line = line.strip()
-            if line and not re.match(r'^(NGHỊ ĐỊNH|LUẬT|BỘ LUẬT|THÔNG TƯ)', line):
+            if line and not re.match(r'^(NGHỊ ĐỊNH|LUẬT|BỘ LUẬT|THÔNG TƯ|QUYẾT ĐỊNH|NGHỊ QUYẾT|PHÁP LỆNH|HIẾN PHÁP|CHỈ THỊ)', line):
                 if len(line) > 10 and line.isupper():
                     title_candidates.append(line)
-        
+
         if title_candidates:
             metadata.tieu_de = title_candidates[0]
+
+        # Detect legislative action from title or content
+        for i, line in enumerate(lines[:20]):
+            for pattern, action in self.LEGISLATIVE_ACTION_PATTERNS.items():
+                if re.search(pattern, line, re.IGNORECASE):
+                    metadata.hanh_dong_lap_phap = action
+                    break
+            if metadata.hanh_dong_lap_phap:
+                break
+
+        # Default to BAN_HANH if no action detected
+        if not metadata.hanh_dong_lap_phap:
+            metadata.hanh_dong_lap_phap = 'BAN_HANH'
         
         # Extract legal basis (Căn cứ)
         can_cu_section = False
@@ -281,14 +324,15 @@ class VietnameseLegalParser:
         return structure
     
     def _get_level(self, component_type: str) -> int:
-        """Get hierarchy level for component type"""
+        """Get hierarchy level for component type (7 levels)"""
         levels = {
-            'PHAN': 1,
-            'CHUONG': 2,
-            'MUC': 3,
-            'DIEU': 4,
-            'KHOAN': 5,
-            'DIEM': 6,
+            'PHAN': 1,      # Part
+            'CHUONG': 2,    # Chapter
+            'MUC': 3,       # Section
+            'DIEU': 4,      # Article
+            'KHOAN': 5,     # Clause
+            'DIEM': 6,      # Point
+            'TIEU_MUC': 7,  # Sub-section
         }
         return levels.get(component_type, 1)
     
@@ -318,11 +362,11 @@ class VietnameseLegalParser:
         find_definitions_recursive(structure)
         return definitions
     
-    def _detect_cross_references(self, structure: List[ComponentNode], 
+    def _detect_cross_references(self, structure: List[ComponentNode],
                                  metadata: DocumentMetadata) -> List[CrossReference]:
-        """Detect cross-references to other components or documents"""
+        """Detect cross-references to other components or documents (5 relationship types)"""
         cross_refs = []
-        
+
         # Detect references in legal basis (CAN_CU)
         for basis in metadata.can_cu:
             cross_refs.append(CrossReference(
@@ -331,10 +375,34 @@ class VietnameseLegalParser:
                 loai_tham_chieu="CAN_CU",
                 noi_dung=basis
             ))
-        
-        # TODO: Detect references within document text (Điều X, Khoản Y)
-        # This requires more sophisticated parsing
-        
+
+        # Detect all 5 relationship types within document content
+        def detect_in_content(nodes: List[ComponentNode]):
+            for node in nodes:
+                if node.noi_dung:
+                    # Check for each relationship pattern
+                    for pattern, rel_type in self.RELATIONSHIP_PATTERNS.items():
+                        matches = re.finditer(pattern + r'[^.;]*[.;]', node.noi_dung, re.IGNORECASE)
+                        for match in matches:
+                            ref_text = match.group(0)
+                            # Extract referenced document/component
+                            doc_ref_match = re.search(r'(Luật|Nghị định|Thông tư|Quyết định|Bộ luật|Pháp lệnh)\s+[^.;]{5,50}', ref_text, re.IGNORECASE)
+                            if doc_ref_match:
+                                target_urn = f"urn:lex:vn:ref:{doc_ref_match.group(0)[:30].replace(' ', '_')}"
+                                source_urn = f"COMPONENT_{node.loai}_{node.so_dinh_danh}"
+                                cross_refs.append(CrossReference(
+                                    source_component=source_urn,
+                                    target_component=target_urn,
+                                    loai_tham_chieu=rel_type,
+                                    noi_dung=ref_text.strip()
+                                ))
+
+                # Recurse into children
+                if node.children:
+                    detect_in_content(node.children)
+
+        detect_in_content(structure)
+
         return cross_refs
     
     def to_json_summary(self) -> str:
