@@ -19,6 +19,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from document_parser import VietnameseLegalParser, ParsedDocument
 from cypher_generator import CypherGenerator
 
+# Import enhanced components
+try:
+    from urn_generator import URNGenerator
+    from cypher_generator_enhanced import CypherGeneratorEnhanced
+    ENHANCED_AVAILABLE = True
+except ImportError:
+    ENHANCED_AVAILABLE = False
+
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['OUTPUT_FOLDER'] = 'outputs'
@@ -75,8 +83,8 @@ def extract_text_from_file(filepath):
 
 @app.route('/')
 def index():
-    """Main page"""
-    return render_template('index.html')
+    """Main page - use new template"""
+    return render_template('index_new.html')
 
 @app.route('/api/parse', methods=['POST'])
 def parse_document():
@@ -151,56 +159,52 @@ def parse_document():
 def generate_cypher():
     """
     Generate Cypher script from parsed document
-    Requires: text content or session_id
+    Supports basic and enhanced generators
     """
     try:
         data = request.json if request.is_json else request.form
-        
+
         # Get text content
         if 'text' in data:
             text_content = data['text']
-            
+
             # Parse document
             parser = VietnameseLegalParser()
             parsed_doc = parser.parse_text(text_content)
-        
-        elif 'session_id' in data:
-            session_id = data['session_id']
-            session_file = os.path.join(app.config['OUTPUT_FOLDER'], f"{session_id}.json")
-            
-            if not os.path.exists(session_file):
-                return jsonify({'error': 'Session not found'}), 404
-            
-            # Reload and parse again (since we can't serialize the full ParsedDocument)
-            with open(session_file, 'r', encoding='utf-8') as f:
-                session_data = json.load(f)
-            
-            # Need original text - for now return error
-            return jsonify({'error': 'Please provide text content for Cypher generation'}), 400
-        
         else:
-            return jsonify({'error': 'No content or session provided'}), 400
-        
+            return jsonify({'error': 'No content provided'}), 400
+
+        # Determine generator type
+        gen_type = data.get('type', 'basic')
+        include_events = data.get('includeEvents', True)
+
         # Generate Cypher
-        generator = CypherGenerator(parsed_doc)
-        cypher_script = generator.generate_all()
-        cypher_summary = json.loads(generator.to_json_summary())
-        
+        if gen_type == 'enhanced' and ENHANCED_AVAILABLE:
+            urn_gen = URNGenerator()
+            generator = CypherGeneratorEnhanced(parsed_doc, urn_gen)
+            cypher_script = generator.generate_all(include_events=include_events)
+            cypher_summary = json.loads(generator.to_json_summary())
+        else:
+            generator = CypherGenerator(parsed_doc)
+            cypher_script = generator.generate_all()
+            cypher_summary = json.loads(generator.to_json_summary())
+
         # Save Cypher script
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         cypher_filename = f"import_{timestamp}.cypher"
         cypher_filepath = os.path.join(app.config['OUTPUT_FOLDER'], cypher_filename)
-        
+
         with open(cypher_filepath, 'w', encoding='utf-8') as f:
             f.write(cypher_script)
-        
+
         return jsonify({
             'success': True,
             'filename': cypher_filename,
+            'cypher': cypher_script,
             'summary': cypher_summary,
             'download_url': f'/api/download/{cypher_filename}'
         })
-    
+
     except Exception as e:
         return jsonify({
             'error': str(e),
@@ -221,8 +225,69 @@ def health():
     return jsonify({
         'status': 'ok',
         'timestamp': datetime.now().isoformat(),
-        'parser_available': True
+        'parser_available': True,
+        'enhanced_available': ENHANCED_AVAILABLE
     })
+
+@app.route('/api/generate-urn', methods=['POST'])
+def generate_urn():
+    """Generate URN identifiers"""
+    if not ENHANCED_AVAILABLE:
+        return jsonify({'error': 'URN generator not available'}), 500
+
+    try:
+        data = request.json
+        urn_gen = URNGenerator()
+
+        # Generate document URN
+        doc_urn = urn_gen.generate_document_urn(
+            doc_type=data.get('docType', 'NGHI_DINH'),
+            authority=data.get('authority', 'CHINH_PHU'),
+            issue_date=data.get('date', '2024-01-01'),
+            number=data.get('number', '01/2024/NĐ-CP')
+        )
+
+        # Generate work ID
+        year = int(data.get('date', '2024-01-01')[:4])
+        work_id = urn_gen.generate_work_id(
+            doc_type=data.get('docType', 'NGHI_DINH'),
+            year=year,
+            number=data.get('number')
+        )
+
+        result = {
+            'success': True,
+            'document_urn': doc_urn,
+            'work_id': work_id
+        }
+
+        # Generate component URN if provided
+        component = data.get('component', '')
+        if component:
+            parts = component.split(':')
+            if len(parts) == 2:
+                comp_urn = urn_gen.generate_component_urn(
+                    document_urn=doc_urn,
+                    component_type=parts[0],
+                    component_id=parts[1]
+                )
+                result['component_urn'] = comp_urn
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/download-schema')
+def download_schema():
+    """Download schema initialization script"""
+    schema_path = os.path.join(os.path.dirname(__file__), 'schema_init.cypher')
+    if os.path.exists(schema_path):
+        return send_file(schema_path, as_attachment=True, download_name='schema_init.cypher')
+    return jsonify({'error': 'Schema file not found'}), 404
 
 if __name__ == '__main__':
     # Create directories
